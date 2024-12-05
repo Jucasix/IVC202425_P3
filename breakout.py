@@ -1,7 +1,7 @@
 import pygame
 from pygame.locals import *
 import cv2
-from facedetect import capturar_video  # Importa a função de detecção de rosto
+from trackfacedetect import capturar_video  # Importa a função de detecção de rosto
 import numpy as np
 import threading
 
