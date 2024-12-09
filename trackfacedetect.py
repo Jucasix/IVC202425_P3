@@ -14,13 +14,13 @@ history_length = 5
 position_history = deque(maxlen=history_length)
 
 # Inicializa o SORT com parâmetros ajustados
-tracker = Sort(max_age=15, min_hits=3, iou_threshold=0.3)  # Aumenta a resiliência do rastreamento
+tracker = Sort(max_age=100, min_hits=2, iou_threshold=0.5)
 last_valid_position = None  # Armazena a última posição válida do ID 1
+primary_id = 1  # ID principal para controle do paddle
 
 def capturar_video(centro_callback, video_running):
-    global last_valid_position
+    global last_valid_position, primary_id
 
-    # Inicializa a captura de vídeo
     cap = cv2.VideoCapture(0)
 
     while video_running.is_set():
@@ -28,21 +28,20 @@ def capturar_video(centro_callback, video_running):
         if not ret:
             break
 
-        # Inverter a imagem para facilitar o controle
         frame = cv2.flip(frame, 1)
 
-        # Detecta o rosto na imagem
+        # Detecta rostos na imagem
         faces = face_detector.detectMultiScale(frame, scaleFactor=1.1, minNeighbors=3)
 
-        # Converte as detecções para o formato esperado pelo SORT: [x1, y1, x2, y2, score]
+        # Filtrar detecções muito pequenas ou muito grandes
         detections = []
         for (x, y, w, h) in faces:
-            detections.append([x, y, x + w, y + h, 1])  # A confiança (score) é fixada como 1
+            if 50 < w < 300 and 50 < h < 300:  # Limitar detecções por tamanho
+                detections.append([x, y, x + w, y + h, 1])  # Score fixado em 1
 
-        # Garante que `detections` seja uma matriz vazia no formato correto se não houver detecções
         detections = np.array(detections) if len(detections) > 0 else np.empty((0, 5))
 
-        # Atualiza o tracker e recebe os IDs atribuídos
+        # Atualiza o tracker
         tracked_objects = tracker.update(detections)
 
         # Processa os objetos rastreados
@@ -51,25 +50,25 @@ def capturar_video(centro_callback, video_running):
             x1, y1, x2, y2, obj_id = map(int, obj)
             centro = ((x1 + x2) // 2, (y1 + y2) // 2)
 
-            # Apenas o ID 1 controla o paddle
-            if obj_id == 1:
+            if obj_id == primary_id:
                 id_found = True
                 last_valid_position = centro  # Atualiza a última posição válida
-                centro_callback(centro)  # Envia a posição do ID 1
+                position_history.append(centro)  # Adiciona ao histórico
+                avg_x = int(np.mean([p[0] for p in position_history]))
+                avg_y = int(np.mean([p[1] for p in position_history]))
+                centro_callback((avg_x, avg_y))  # Envia posição suavizada para o paddle
 
             # Desenha a bounding box e o ID na imagem
             cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
-            cv2.circle(frame, centro, 5, (0, 0, 255), -1)
             cv2.putText(frame, f"ID: {obj_id}", (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 2)
 
-        # Se o ID 1 não for encontrado, mantém a última posição válida
+        # Mantém a última posição válida mesmo se o ID principal não for detectado
         if not id_found and last_valid_position is not None:
             centro_callback(last_valid_position)
 
-        # Exibe a imagem com a detecção e rastreamento
-        cv2.imshow("Deteccao de Rosto com Rastreamento", frame)
+        # Exibe a imagem com o rastreamento
+        cv2.imshow("Rastreamento com Viola-Jones e SORT", frame)
 
-        # Fecha a janela com a tecla 'q'
         if cv2.waitKey(1) & 0xFF == ord('q'):
             video_running.clear()
             break
