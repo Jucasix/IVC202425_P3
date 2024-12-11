@@ -1,6 +1,8 @@
 import cv2
 import os
 import numpy as np
+from rich.progress import track
+
 from sort import *  # Importa o tracker SORT
 from collections import deque
 
@@ -43,6 +45,20 @@ def capturar_video(centro_callback, video_running):
 
         # Atualiza o tracker
         tracked_objects = tracker.update(detections)
+        # print(tracked_objects)
+
+        # Ensure tracked_objects is always a 2D array
+        if len(tracked_objects) == 1:
+            # Only one object, so it's automatically the one with the smallest ID
+            object_with_min_id = tracked_objects[0]
+            min_id_index = tracked_objects[0][4]
+            print("Only one object detected:", min_id_index)
+        elif len(tracked_objects) > 1:
+            # Multiple objects, find the smallest ID
+            ids = tracked_objects[:, -1]  # Extract the last column (IDs)
+            min_id_index = np.argmin(ids)  # Get the index of the smallest ID
+            object_with_min_id = tracked_objects[min_id_index]  # Retrieve the object
+            print("Object with the smallest ID:", min_id_index)
 
         # Processa os objetos rastreados
         id_found = False
@@ -50,7 +66,7 @@ def capturar_video(centro_callback, video_running):
             x1, y1, x2, y2, obj_id = map(int, obj)
             centro = ((x1 + x2) // 2, (y1 + y2) // 2)
 
-            if obj_id == primary_id:
+            if obj_id == min_id_index:
                 id_found = True
                 last_valid_position = centro  # Atualiza a última posição válida
                 position_history.append(centro)  # Adiciona ao histórico
