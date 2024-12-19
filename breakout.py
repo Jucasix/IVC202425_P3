@@ -30,13 +30,24 @@ fps = 60
 live_ball = False
 game_over = 0
 
+# Variável para armazenar a posição normalizada do rosto
+centro_normalizado = 0.5
+video_running = threading.Event()  # Flag para controlar a thread de captura de vídeo
+video_running.set()  # Inicializa como ativo
+
+# Callback para atualizar a posição do rosto
+def atualizar_centro(centro):
+    global centro_normalizado
+    centro_normalizado = centro
+
+# Função para exibir as instruções iniciais
 def readme_window(window_name="README", width=800, height=300, font_scale=0.6, color=(255, 255, 255), thickness=1):
-    image = np.zeros((height,width, 3), dtype=np.uint8)
+    image = np.zeros((height, width, 3), dtype=np.uint8)
 
     font = cv2.FONT_HERSHEY_SIMPLEX
 
     text1 = "Usar a cabeca para jogar, movendo-a de um lado para o outro."
-    text2 = "Deve jogar com o rosto virada de frente para a camara."
+    text2 = "Deve jogar com o rosto virado de frente para a camara."
     text3 = "Deve estar entre 60 a 80 cm da camara."
 
     text_x = 25
@@ -49,22 +60,39 @@ def readme_window(window_name="README", width=800, height=300, font_scale=0.6, c
     cv2.putText(image, text3, (text_x, text_y3), font, font_scale, color, thickness, lineType=cv2.LINE_AA)
     cv2.imshow(window_name, image)
 
+# Classe Paddle
+class Paddle:
+    def __init__(self):
+        self.reset()
 
-# Variável para armazenar a posição do rosto
-centro_objeto = None
-video_running = threading.Event()  # Flag para controlar a thread de captura de vídeo
-video_running.set()  # Inicializa como ativo
+    def move_to_position(self, centro_normalizado):
+        # Mapeia a posição normalizada para a largura da tela
+        self.x = int(centro_normalizado * (screen_width - self.width))
+        self.rect.x = self.x
 
-# Callback para atualizar a posição do rosto
-def atualizar_centro(centro):
-    global centro_objeto
-    centro_objeto = centro
+        # Verifica os limites da tela
+        if self.rect.left < 0:
+            self.rect.left = 0
+        if self.rect.right > screen_width:
+            self.rect.right = screen_width
 
-# Classe Wall para criar os blocos do jogo
+    def draw(self):
+        pygame.draw.rect(screen, paddle_col, self.rect)
+        pygame.draw.rect(screen, paddle_outline, self.rect, 3)
+
+    def reset(self):
+        self.height = 20
+        self.width = int(screen_width / cols)
+        self.x = int((screen_width / 2) - (self.width / 2))  # Inicializa x
+        self.y = screen_height - (self.height * 2)
+        self.rect = pygame.Rect(self.x, self.y, self.width, self.height)
+
+# Classe Wall
 class Wall:
     def __init__(self):
         self.width = screen_width // cols
         self.height = 50
+        self.blocks = []
         self.create_wall()
 
     def create_wall(self):
@@ -87,37 +115,15 @@ class Wall:
     def draw_wall(self):
         for row in self.blocks:
             for block in row:
-                if block[1] == 3:
-                    block_col = block_blue
-                elif block[1] == 2:
-                    block_col = block_green
-                else:
-                    block_col = block_red
-                pygame.draw.rect(screen, block_col, block[0])
-                pygame.draw.rect(screen, bg, (block[0]), 2)
-
-# Classe Paddle
-class Paddle:
-    def __init__(self):
-        self.reset()
-
-    def move_to_position(self, x):
-        self.rect.x = x - self.width // 2
-        if self.rect.left < 0:
-            self.rect.left = 0
-        if self.rect.right > screen_width:
-            self.rect.right = screen_width
-
-    def draw(self):
-        pygame.draw.rect(screen, paddle_col, self.rect)
-        pygame.draw.rect(screen, paddle_outline, self.rect, 3)
-
-    def reset(self):
-        self.height = 20
-        self.width = int(screen_width / cols)
-        self.x = int((screen_width / 2) - (self.width / 2))
-        self.y = screen_height - (self.height * 2)
-        self.rect = pygame.Rect(self.x, self.y, self.width, self.height)
+                if block[1] > 0:
+                    if block[1] == 3:
+                        block_col = block_blue
+                    elif block[1] == 2:
+                        block_col = block_green
+                    else:
+                        block_col = block_red
+                    pygame.draw.rect(screen, block_col, block[0])
+                    pygame.draw.rect(screen, bg, block[0], 2)
 
 # Classe Ball
 class Ball:
@@ -128,7 +134,6 @@ class Ball:
         self.rect.x += self.speed_x
         self.rect.y += self.speed_y
 
-        # Detecta colisão com as paredes
         if self.rect.left < 0 or self.rect.right > screen_width:
             self.speed_x *= -1
         if self.rect.top < 0:
@@ -136,11 +141,9 @@ class Ball:
         if self.rect.bottom > screen_height:
             self.game_over = -1
 
-        # Detecta colisão com o paddle
         if self.rect.colliderect(player_paddle.rect):
             self.speed_y *= -1
 
-        # Detecta colisão com os blocos da parede
         for row in wall.blocks:
             for block in row:
                 if self.rect.colliderect(block[0]):
@@ -167,39 +170,32 @@ class Ball:
         self.speed_max = 5
         self.game_over = 0
 
-# Inicializa o jogo
 wall = Wall()
 player_paddle = Paddle()
 ball = Ball(player_paddle.x + (player_paddle.width // 2), player_paddle.y - player_paddle.height)
 
 readme_window()
 
-# Inicia a thread de captura de vídeo com a detecção de rosto
-thread_video = threading.Thread(target=capturar_video, args=(atualizar_centro, video_running))
+thread_video = threading.Thread(target=capturar_video, args=(atualizar_centro, video_running, screen_width))
 thread_video.start()
 
-# Loop principal do jogo
 run = True
 while run:
     clock.tick(fps)
     screen.fill(bg)
 
-    # Move o paddle com a última posição conhecida
-    if centro_objeto is not None:
-        player_paddle.move_to_position(centro_objeto[0])
+    if centro_normalizado is not None:
+        player_paddle.move_to_position(centro_normalizado)
 
-    # Desenha os elementos do jogo
     wall.draw_wall()
     player_paddle.draw()
     ball.draw()
 
-    # Movimento da bola
     if live_ball:
         game_over = ball.move()
         if game_over != 0:
             live_ball = False
 
-    # Exibe o texto de instruções
     if not live_ball:
         if game_over == 0:
             text = 'CLICK ANYWHERE TO START'
@@ -221,7 +217,6 @@ while run:
 
     pygame.display.update()
 
-# Encerra a thread de captura de vídeo e fecha o jogo
 video_running.clear()
 thread_video.join()
 cv2.destroyAllWindows()
